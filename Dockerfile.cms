@@ -25,15 +25,30 @@ COPY --from=pruner /app/out/full/ .
 RUN pnpm db:generate
 
 # Build project
-# We pass dummy values for DB, Auth, AND Cloudflare R2 to satisfy validation
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" \
     BETTER_AUTH_SECRET="dummy_secret_for_build" \
     BETTER_AUTH_URL="https://blog.kerjabaik.ai" \
-    R2_ACCOUNT_ID="dummy_account_id" \
-    R2_ACCESS_KEY_ID="dummy_access_key" \
-    R2_SECRET_ACCESS_KEY="dummy_secret_key" \
-    R2_BUCKET_NAME="dummy_bucket" \
-    R2_PUBLIC_URL="https://dummy-r2.com" \
+    # Variation 1: Marble / Cloudflare Standard
+    R2_ACCOUNT_ID="dummy" \
+    R2_ACCESS_KEY_ID="dummy" \
+    R2_SECRET_ACCESS_KEY="dummy" \
+    R2_BUCKET_NAME="dummy" \
+    R2_PUBLIC_URL="https://dummy.com" \
+    # Variation 2: Cloudflare Explicit
+    CLOUDFLARE_ACCOUNT_ID="dummy" \
+    CLOUDFLARE_ACCESS_KEY_ID="dummy" \
+    CLOUDFLARE_SECRET_ACCESS_KEY="dummy" \
+    CLOUDFLARE_BUCKET_NAME="dummy" \
+    CLOUDFLARE_PUBLIC_URL="https://dummy.com" \
+    # Variation 3: Generic S3 (AWS/MinIO/DO)
+    S3_ACCESS_KEY_ID="dummy" \
+    S3_SECRET_ACCESS_KEY="dummy" \
+    S3_BUCKET_NAME="dummy" \
+    S3_ENDPOINT="https://dummy.com" \
+    S3_REGION="auto" \
+    # Variation 4: Frontend Public Vars
+    NEXT_PUBLIC_R2_URL="https://dummy.com" \
+    NEXT_PUBLIC_CLOUDFLARE_PUB_URL="https://dummy.com" \
     pnpm build --filter=cms
 
 # --- Stage 3: Runner ---

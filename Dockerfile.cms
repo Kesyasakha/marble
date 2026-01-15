@@ -1,10 +1,9 @@
 # --- Stage 1: Prune ---
-# Kita ambil hanya file yang dibutuhkan oleh 'cms'
 FROM node:20-alpine AS pruner
 WORKDIR /app
 RUN npm install -g turbo
 COPY . .
-# GANTI 'cms' dengan nama package.json yang ada di apps/cms (cek baris "name": "..." di apps/cms/package.json)
+# GANTI scope jika perlu (misal: @marble/cms atau cms)
 RUN turbo prune --scope=cms --docker
 
 # --- Stage 2: Install & Build ---
@@ -12,16 +11,17 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 RUN npm install -g pnpm
 
-# Copy file hasil prune (json only)
+# Copy file json
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# FIX DISINI: Tambahkan --ignore-scripts agar tidak error cari schema prisma
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
-# Generate Prisma Client (PENTING: karena ada packages/db)
-# Kita copy schema prisma dari full source jika belum tercopy, tapi biasanya ada di folder packages/db
+# Copy full source code (termasuk schema.prisma)
 COPY --from=pruner /app/out/full/ .
+
+# Baru sekarang kita generate prisma client karena file schema sudah ada
 RUN pnpm db:generate
 
 # Build project
@@ -33,12 +33,9 @@ WORKDIR /app
 
 ENV NODE_ENV production
 
-# Tambahkan user non-root untuk keamanan
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy file standalone hasil build Next.js
-# Next.js otomatis membuat folder 'standalone' yang berisi node_modules minimal
 COPY --from=builder --chown=nextjs:nodejs /app/apps/cms/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/cms/.next/static ./apps/cms/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/apps/cms/public ./apps/cms/public
@@ -49,5 +46,4 @@ EXPOSE 3000
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
-# Jalankan server
 CMD ["node", "apps/cms/server.js"]

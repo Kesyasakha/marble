@@ -1,55 +1,53 @@
 # --- Stage 1: Prune ---
 FROM node:20-alpine AS pruner
+# Tambahkan libc6-compat untuk kompatibilitas library native
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 RUN npm install -g turbo
 COPY . .
-# GANTI scope jika perlu (misal: @marble/cms atau cms)
+# Prune scope cms
 RUN turbo prune --scope=cms --docker
 
 # --- Stage 2: Install & Build ---
 FROM node:20-alpine AS builder
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 RUN npm install -g pnpm
 
-# Copy file json
+# Copy file json hasil prune
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 
-# FIX DISINI: Tambahkan --ignore-scripts agar tidak error cari schema prisma
+# Install dependencies (ignore scripts agar lebih cepat & aman di tahap ini)
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
-# Copy full source code (termasuk schema.prisma)
+# Copy source code lengkap hasil prune
 COPY --from=pruner /app/out/full/ .
 
-# Baru sekarang kita generate prisma client karena file schema sudah ada
+# Generate Prisma Client (Wajib dilakukan sebelum build)
 RUN pnpm db:generate
 
+# --- JURUS BYPASS: Buat dummy .env fisik di folder apps/cms ---
+WORKDIR /app/apps/cms
+
+RUN echo "DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy" > .env && \
+    echo "BETTER_AUTH_SECRET=rahasia_dummy_untuk_build_saja_123456" >> .env && \
+    echo "BETTER_AUTH_URL=http://localhost:3000" >> .env && \
+    # Cloudflare Variables Bypass
+    echo "R2_ACCOUNT_ID=dummy" >> .env && \
+    echo "R2_ACCESS_KEY_ID=dummy" >> .env && \
+    echo "R2_SECRET_ACCESS_KEY=dummy" >> .env && \
+    echo "R2_BUCKET_NAME=dummy" >> .env && \
+    echo "R2_PUBLIC_URL=https://dummy.com" >> .env && \
+    echo "CLOUDFLARE_ACCOUNT_ID=dummy" >> .env && \
+    echo "CLOUDFLARE_API_TOKEN=dummy" >> .env && \
+    echo "NEXT_PUBLIC_R2_URL=https://dummy.com" >> .env
+
+# Kembali ke root untuk menjalankan turbo build
+WORKDIR /app
+
 # Build project
-RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" \
-    BETTER_AUTH_SECRET="dummy_secret_for_build" \
-    BETTER_AUTH_URL="https://blog.kerjabaik.ai" \
-    # Variation 1: Marble / Cloudflare Standard
-    R2_ACCOUNT_ID="dummy" \
-    R2_ACCESS_KEY_ID="dummy" \
-    R2_SECRET_ACCESS_KEY="dummy" \
-    R2_BUCKET_NAME="dummy" \
-    R2_PUBLIC_URL="https://dummy.com" \
-    # Variation 2: Cloudflare Explicit
-    CLOUDFLARE_ACCOUNT_ID="dummy" \
-    CLOUDFLARE_ACCESS_KEY_ID="dummy" \
-    CLOUDFLARE_SECRET_ACCESS_KEY="dummy" \
-    CLOUDFLARE_BUCKET_NAME="dummy" \
-    CLOUDFLARE_PUBLIC_URL="https://dummy.com" \
-    # Variation 3: Generic S3 (AWS/MinIO/DO)
-    S3_ACCESS_KEY_ID="dummy" \
-    S3_SECRET_ACCESS_KEY="dummy" \
-    S3_BUCKET_NAME="dummy" \
-    S3_ENDPOINT="https://dummy.com" \
-    S3_REGION="auto" \
-    # Variation 4: Frontend Public Vars
-    NEXT_PUBLIC_R2_URL="https://dummy.com" \
-    NEXT_PUBLIC_CLOUDFLARE_PUB_URL="https://dummy.com" \
-    pnpm build --filter=cms
+RUN pnpm build --filter=cms
 
 # --- Stage 3: Runner ---
 FROM node:20-alpine AS runner
@@ -57,10 +55,15 @@ WORKDIR /app
 
 ENV NODE_ENV production
 
+# Setup user permission agar lebih aman
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# Copy hasil build 'standalone' (Ini sudah include node_modules minimal yang dibutuhkan)
+# Standalone output di monorepo biasanya mempertahankan struktur folder apps/cms
 COPY --from=builder --chown=nextjs:nodejs /app/apps/cms/.next/standalone ./
+
+# Copy static assets (CSS/JS/Images) ke tempat yang sesuai
 COPY --from=builder --chown=nextjs:nodejs /app/apps/cms/.next/static ./apps/cms/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/apps/cms/public ./apps/cms/public
 
@@ -68,6 +71,8 @@ USER nextjs
 
 EXPOSE 3000
 ENV PORT 3000
+# Hostname 0.0.0.0 wajib agar bisa diakses dari luar container
 ENV HOSTNAME "0.0.0.0"
 
+# Jalankan server
 CMD ["node", "apps/cms/server.js"]

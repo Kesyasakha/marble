@@ -25,9 +25,15 @@ COPY --from=pruner /app/out/full/ .
 RUN pnpm db:generate
 
 # Build project
+# We pass dummy values for DB, Auth, AND Cloudflare R2 to satisfy validation
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" \
     BETTER_AUTH_SECRET="dummy_secret_for_build" \
     BETTER_AUTH_URL="https://blog.kerjabaik.ai" \
+    R2_ACCOUNT_ID="dummy_account_id" \
+    R2_ACCESS_KEY_ID="dummy_access_key" \
+    R2_SECRET_ACCESS_KEY="dummy_secret_key" \
+    R2_BUCKET_NAME="dummy_bucket" \
+    R2_PUBLIC_URL="https://dummy-r2.com" \
     pnpm build --filter=cms
 
 # --- Stage 3: Runner ---
